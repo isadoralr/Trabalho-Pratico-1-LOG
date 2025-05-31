@@ -26,7 +26,7 @@ Sistema que demonstra o funcionamento de um mecanismo de REDO para recuperação
 O script irá:
 1. Criar as tabelas necessárias (tabela em memória e tabela de log)
 2. Criar um trigger para registrar as operações no log
-3. Simular algumas operações de INSERT e UPDATE
+3. Simular as operações do arquivo de entrada transacoes.sql
 4. Simular uma queda do sistema
 5. Realizar o processo de REDO para recuperar os dados
 
