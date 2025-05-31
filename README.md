@@ -12,9 +12,7 @@ Sistema que demonstra o funcionamento de um mecanismo de REDO para recuperação
 ## Instalação
 
 1. Instale as dependências necessárias:
-"""bash
-pip install psycopg2-binary
-"""
+- pip install psycopg2-binary
 
 2. Configure o banco de dados PostgreSQL:
    - Crie um banco de dados chamado "db_log"
@@ -23,9 +21,7 @@ pip install psycopg2-binary
 ## Como usar
 
 1. Execute o sistema com Python:
-"""bash
-python sistema_log_redo.py
-"""
+- python sistema_log_redo.py
 
 O script irá:
 1. Criar as tabelas necessárias (tabela em memória e tabela de log)
