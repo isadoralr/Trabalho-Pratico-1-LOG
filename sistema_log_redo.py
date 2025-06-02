@@ -258,7 +258,7 @@ def mostrar_log():
     for tx_id in tx_ids:
         print(f"\nTransação {tx_id}:")
         # Buscar todos os registros do log para o transaction_id
-        cur.execute("select log_id, tipo, operacao, id_cliente, nome_old, nome_new, saldo_old, saldo_new from log where transaction_id = %s order by log_id;", (tx_id))
+        cur.execute("select log_id, tipo, operacao, id_cliente, nome_old, nome_new, saldo_old, saldo_new from log where transaction_id = %s order by log_id;", (tx_id,))
         rows = cur.fetchall()
         status = 'COMMIT' # Assume que a transação foi confirmada
         # Percorre todas as operações da transação para pegar o status (COMMIT ou ROLLBACK)
@@ -267,9 +267,9 @@ def mostrar_log():
                 status = 'ROLLBACK' # Atualiza o status para ROLLBACK para imprimir
         print(f"  Status: {status}")
         for log_id, tipo, operacao, id_cliente, nome_old, nome_new, saldo_old, saldo_new in rows:
-            if tipo == 'OP': # Imprime as operações da transação
+            if tipo == 'OP': # Obs: Não imprime as operações de transações rollbacked, pois desengatilham as triggers
                 print(f"    [{log_id}] {operacao} id: {id_cliente} nome_old: {nome_old} nome_new: {nome_new} saldo_old: {saldo_old} saldo_new: {saldo_new}")
-            elif tipo in ('BEGIN', 'COMMIT', 'ROLLBACK'): # Imprime o status da transação
+            elif tipo in ('BEGIN', 'COMMIT', 'ROLLBACK'): 
                 print(f"    [{log_id}] {tipo}")
     cur.close()
     conn.close()
