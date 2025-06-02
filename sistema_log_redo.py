@@ -97,19 +97,20 @@ def criar_tabelas():
     conn.close()
 
 def executar_transacoes_do_arquivo(arquivo):
-    """Executa as transações lidas do arquivo e registra no log apenas BEGIN, COMMIT e ROLLBACK. As operações são logadas automaticamente pelas triggers."""
+    # Registra manualmente no só log o início e fim das transações, também verifica se a transação finalizou corretamente
+    # Operações são executadas e logadas automaticamente pelas triggers
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     print("\nExecutando transações do arquivo...")
-    transaction_id = None
-    transacao_atual = []
+    transaction_id = None # ID da transação atual
+    transacao_atual = [] # Lista de operações da transação atual
     with open(arquivo, 'r') as f:
         for linha in f:
             linha = linha.strip()
-            if not linha:
+            if not linha: # Ignora linhas vazias
                 continue
             if linha == 'BEGIN;':
-                # Se já existe uma transação aberta, finalize com ROLLBACK antes de iniciar nova
+                # Se já existe uma transação aberta, finaliza com ROLLBACK antes de iniciar nova
                 if transaction_id is not None:
                     print(f"Transação {transaction_id} não finalizada explicitamente, realizando ROLLBACK.")
                     cur.execute("ROLLBACK;")
@@ -117,28 +118,28 @@ def executar_transacoes_do_arquivo(arquivo):
                     transacao_atual = []
                     transaction_id = None
                 cur.execute("BEGIN;")
-                cur.execute("SELECT txid_current();")
-                transaction_id = cur.fetchone()[0]
+                cur.execute("SELECT txid_current();") 
+                transaction_id = cur.fetchone()[0] # ID da transação atual
                 # Loga o início da transação com o mesmo txid_current()
                 cur.execute("INSERT INTO log (transaction_id, tipo) VALUES (%s, 'BEGIN')", (transaction_id,))
                 transacao_atual = []
             elif linha in ['COMMIT;', 'END;', 'ROLLBACK;', 'commit;', 'end;', 'rollback;']:
-                if transaction_id is None:
-                    # BEGIN não foi encontrado antes, ignora
+                if transaction_id is None: 
+                    # Fora de transação, BEGIN não foi encontrado antes, ignora
                     continue
                 if linha.lower() in ['commit;', 'end;']:
                     try:
-                        for cmd in transacao_atual:
+                        for cmd in transacao_atual: # Executa cada operação da transação
                             cur.execute(cmd)
                         cur.execute("COMMIT;")
                         # Loga o commit
                         cur.execute("INSERT INTO log (transaction_id, tipo) VALUES (%s, 'COMMIT')", (transaction_id,))
-                    except Exception as e:
+                    except Exception as e: # Se houver erro, realiza rollback e loga o rollback
                         print(f"Erro na transação: {e}")
                         cur.execute("ROLLBACK;")
                         # Loga o rollback
                         cur.execute("INSERT INTO log (transaction_id, tipo) VALUES (%s, 'ROLLBACK')", (transaction_id,))
-                    transacao_atual = []
+                    transacao_atual = [] # Acabou a transação atual, limpa a lista de operações
                     transaction_id = None
                 else:
                     print("Transação com ROLLBACK - ignorando")
@@ -147,10 +148,10 @@ def executar_transacoes_do_arquivo(arquivo):
                     cur.execute("INSERT INTO log (transaction_id, tipo) VALUES (%s, 'ROLLBACK')", (transaction_id,))
                     transacao_atual = []
                     transaction_id = None
-                # Não incremente aqui, só no próximo BEGIN
-            else:
-                transacao_atual.append(linha)
-    # Ao final do arquivo, se houver transação aberta, finalize com ROLLBACK (transação inacabada)
+            else: # Se não for comando de início ou fim de transação, adiciona a operação à lista de operações da transação atual
+                transacao_atual.append(linha) # Adiciona a operação à lista de operações da transação atual
+
+    # Ao final do arquivo, se houver transação aberta, finaliza com ROLLBACK (Não resetou o transaction_id)
     if transaction_id is not None:
         print(f"Transação {transaction_id} não finalizada explicitamente, realizando ROLLBACK.")
         cur.execute("ROLLBACK;")
@@ -159,11 +160,11 @@ def executar_transacoes_do_arquivo(arquivo):
     conn.close()
 
 def simular_queda():
-    """Simula a queda do sistema limpando a tabela em memória"""
+    # Simula a queda do sistema limpando a tabela em memória
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     
-    cur.execute("TRUNCATE TABLE clientes_em_memoria RESTART IDENTITY;")
+    cur.execute("TRUNCATE TABLE clientes_em_memoria RESTART IDENTITY;") # Limpa a tabela em memória e reinicia a sequência de IDs
     
     cur.close()
     conn.close()
@@ -172,14 +173,9 @@ def realizar_redo():
     print("\n=== Iniciando processo de REDO ===")
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
-    cur.execute("DELETE FROM clientes_em_memoria;")
-    cur.execute("ALTER SEQUENCE clientes_em_memoria_id_seq RESTART WITH 1;")
     # Descobre as transações commitadas
     cur.execute("SELECT DISTINCT transaction_id FROM log WHERE tipo = 'COMMIT'")
-    commitadas = set(row[0] for row in cur.fetchall())
-    cur.execute("SELECT DISTINCT transaction_id FROM log WHERE tipo = 'ROLLBACK'")
-    rollbackadas = set(row[0] for row in cur.fetchall())
-    transacoes_redo = commitadas - rollbackadas
+    transacoes_redo = set(row[0] for row in cur.fetchall()) # id das transações confirmadas
     # Busca todas as operações do log ordenadas por log_id
     cur.execute("""
         SELECT transaction_id, operacao, id_cliente, nome_old, nome_new, saldo_old, saldo_new
@@ -187,9 +183,10 @@ def realizar_redo():
         WHERE tipo = 'OP'
         ORDER BY log_id;
     """)
-    operacoes = cur.fetchall()
+    operacoes = cur.fetchall() # Tem todas as operações do log ordenadas por log_id
+    # Realiza o REDO para as transações confirmadas que não foram rollbacked, usando o tipo de cada uma
     for tx_id, operacao, id_cliente, nome_old, nome_new, saldo_old, saldo_new in operacoes:
-        if tx_id not in transacoes_redo:
+        if tx_id not in transacoes_redo: # Filtra as transacoes não confirmadas
             continue
         try:
             if operacao == 'INSERT':
@@ -215,22 +212,22 @@ def realizar_redo():
                     DELETE FROM clientes_em_memoria 
                     WHERE id = %s;
                 """, (id_cliente,))
-        except Exception:
+        except Exception: # Se houver erro, ignora e continua com a próxima transação
             pass
     conn.commit()
     print_redo_report(cur, list(transacoes_redo))
     cur.close()
     conn.close()
 
-def print_redo_report(cursor, committed_transactions):
+def print_redo_report(cursor, commitadas): # Exibe o relatório de REDO
     print(f"\n{'='*50}")
     print("RELATÓRIO DO PROCESSO DE REDO")
     print(f"{'='*50}")
-    if not committed_transactions:
+    if not commitadas:
         print("Nenhuma transação foi recuperada.")
         return
-    print(f"Transações recuperadas: {len(committed_transactions)}")
-    for tx_id in committed_transactions:
+    print(f"Transações recuperadas: {len(commitadas)}")
+    for tx_id in commitadas:
         print(f"  - Transação {tx_id}: REDO realizado com sucesso")
     print(f"\n{'='*30}")
     print("ESTADO FINAL DA TABELA:")
@@ -238,7 +235,7 @@ def print_redo_report(cursor, committed_transactions):
     cursor.execute("SELECT * FROM clientes_em_memoria ORDER BY id;")
     clientes = cursor.fetchall()
     if clientes:
-        print(f"{'ID':<5} {'Nome':<15} {'Saldo':<10}")
+        print(f"{'ID':<5} {'Nome':<15} {'Saldo':<10}") # Formatação para exibição dos dados
         print("-" * 30)
         for cliente in clientes:
             print(f"{cliente[0]:<5} {cliente[1]:<15} {cliente[2]:<10}")
@@ -261,20 +258,19 @@ def mostrar_log():
     for tx_id in tx_ids:
         print(f"\nTransação {tx_id}:")
         # Buscar todos os registros do log para o transaction_id
-        cur.execute("select log_id, tipo, operacao, id_cliente, nome_old, nome_new, saldo_old, saldo_new from log where transaction_id = %s order by log_id;", (tx_id,))
+        cur.execute("select log_id, tipo, operacao, id_cliente, nome_old, nome_new, saldo_old, saldo_new from log where transaction_id = %s order by log_id;", (tx_id))
         rows = cur.fetchall()
-        status = 'NÃO FINALIZADA'
-        for log_id, tipo, operacao, id_cliente, nome_old, nome_new, saldo_old, saldo_new in rows:
+        status = 'COMMIT' # Assume que a transação foi confirmada
+        # Percorre todas as operações da transação para pegar o status (COMMIT ou ROLLBACK)
+        for log_id, tipo, operacao, id_cliente, nome_old, nome_new, saldo_old, saldo_new in rows: 
             if tipo == 'ROLLBACK':
-                status = 'ROLLBACK'
-            elif tipo == 'COMMIT' and status != 'ROLLBACK':
-                status = 'COMMIT'
+                status = 'ROLLBACK' # Atualiza o status para ROLLBACK para imprimir
         print(f"  Status: {status}")
         for log_id, tipo, operacao, id_cliente, nome_old, nome_new, saldo_old, saldo_new in rows:
-            if tipo == 'OP':
-                print(f"    [{log_id}] {operacao} id={id_cliente} nome_old={nome_old} nome_new={nome_new} saldo_old={saldo_old} saldo_new={saldo_new}")
-            elif tipo in ('BEGIN', 'COMMIT', 'ROLLBACK'):
-                print(f"    [{log_id}] {tipo.lower()}")
+            if tipo == 'OP': # Imprime as operações da transação
+                print(f"    [{log_id}] {operacao} id: {id_cliente} nome_old: {nome_old} nome_new: {nome_new} saldo_old: {saldo_old} saldo_new: {saldo_new}")
+            elif tipo in ('BEGIN', 'COMMIT', 'ROLLBACK'): # Imprime o status da transação
+                print(f"    [{log_id}] {tipo}")
     cur.close()
     conn.close()
 
