@@ -1,4 +1,4 @@
-# Sistema de Log e REDO - BDII Trabalho Prático 1
+# Sistema de Log e REDO - BDII Trabalho Prático 2
 ## Aluna: Isadora Laís Ruschel
 
 Sistema que demonstra o funcionamento de um mecanismo de REDO para recuperação de dados após falhas no sistema.
